@@ -42,9 +42,6 @@ Write-Host "Made with love by lily<3" -ForegroundColor Cyan
 Write-Host ""
 Write-Host ""
 
-
-Write-Host "[1/8] Analyzing WLAN-AutoConfig Event Logs..." -ForegroundColor Yellow
-
 $wlanEvents = @()
 try {
     $events = Get-WinEvent -LogName "Microsoft-Windows-WLAN-AutoConfig/Operational" -MaxEvents 100 -ErrorAction Stop |
@@ -57,13 +54,9 @@ try {
             Message = $event.Message.Substring(0, [Math]::Min(200, $event.Message.Length))
         }
     }
-    
-    Write-Host "  Found $($wlanEvents.Count) WLAN events" -ForegroundColor Green
 } catch {
-    Write-Host "  Warning: Could not read WLAN logs" -ForegroundColor Yellow
+    # Silently continue
 }
-
-Write-Host "[2/8] Analyzing Network Profiles..." -ForegroundColor Yellow
 
 $networkProfiles = @()
 try {
@@ -87,8 +80,6 @@ try {
         }
     }
     
-    Write-Host "  Found $($networkProfiles.Count) network profiles" -ForegroundColor Green
-    
     $hotspotProfiles = $networkProfiles | Where-Object { $_.IsHotspot }
     if ($hotspotProfiles.Count -gt 0) {
         Write-Host "  Detected $($hotspotProfiles.Count) hotspot profile(s):" -ForegroundColor Yellow
@@ -97,10 +88,8 @@ try {
         }
     }
 } catch {
-    Write-Host "  Error: $_" -ForegroundColor Red
+    # Silently continue
 }
-
-Write-Host "[3/8] Analyzing Current WiFi Connection..." -ForegroundColor Yellow
 
 $currentConnection = $null
 $hotspotIndicators = @()
@@ -252,17 +241,11 @@ try {
                 }
                 $suspiciousActivities += "Currently connected to hotspot: $currentSSID ($($hotspotIndicators.Count) indicators)"
             }
-        } else {
-            Write-Host "  WiFi is $currentState" -ForegroundColor Gray
         }
-    } else {
-        Write-Host "  Not connected to WiFi" -ForegroundColor Gray
     }
 } catch {
-    Write-Host "  Error: $_" -ForegroundColor Red
+    # Silently continue
 }
-
-Write-Host "[4/8] Checking Hosted Network Status..." -ForegroundColor Yellow
 
 $hostedNetworkActive = $false
 $hostedNetworkSSID = "N/A"
@@ -292,14 +275,10 @@ try {
         Write-Host "    SSID: $hostedNetworkSSID" -ForegroundColor Red
         Write-Host "    Clients: $hostedNetworkClients" -ForegroundColor Red
         $suspiciousActivities += "Active hosted network '$hostedNetworkSSID' with $hostedNetworkClients client(s)"
-    } else {
-        Write-Host "  Hosted Network is inactive" -ForegroundColor Green
     }
 } catch {
-    Write-Host "  Error: $_" -ForegroundColor Red
+    # Silently continue
 }
-
-Write-Host "[5/8] Checking Windows Mobile Hotspot..." -ForegroundColor Yellow
 
 $mobileHotspotActive = $false
 try {
@@ -310,17 +289,11 @@ try {
             $mobileHotspotActive = $true
             Write-Host "  WARNING: Mobile Hotspot service is RUNNING!" -ForegroundColor Red
             $suspiciousActivities += "Windows Mobile Hotspot service (icssvc) is running"
-        } else {
-            Write-Host "  Mobile Hotspot service is stopped" -ForegroundColor Green
         }
-    } else {
-        Write-Host "  Mobile Hotspot service not found" -ForegroundColor Gray
     }
 } catch {
-    Write-Host "  Error: $_" -ForegroundColor Red
+    # Silently continue
 }
-
-Write-Host "[6/8] Analyzing Network Adapters..." -ForegroundColor Yellow
 
 $virtualAdapters = @()
 try {
@@ -342,14 +315,10 @@ try {
     
     if ($virtualAdapters.Count -gt 0) {
         $suspiciousActivities += "$($virtualAdapters.Count) virtual network adapter(s) detected"
-    } else {
-        Write-Host "  No suspicious virtual adapters found" -ForegroundColor Green
     }
 } catch {
-    Write-Host "  Error: $_" -ForegroundColor Red
+    # Silently continue
 }
-
-Write-Host "[7/8] Detecting Connected Clients..." -ForegroundColor Yellow
 
 $connectedDevices = @()
 try {
@@ -371,13 +340,11 @@ try {
         }
     }
     
-    Write-Host "  Found $($connectedDevices.Count) devices on local network" -ForegroundColor Green
-    
     if ($connectedDevices.Count -ge 2) {
         Write-Host "  Note: Multiple devices detected - review ARP table in report" -ForegroundColor Cyan
     }
 } catch {
-    Write-Host "  Error: $_" -ForegroundColor Red
+    # Silently continue
 }
 
 Write-Host "[8/8] Generating HTML Report..." -ForegroundColor Yellow
