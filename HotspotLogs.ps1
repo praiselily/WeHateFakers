@@ -7,10 +7,14 @@ DESCRIPTION
 
 #>
 
-param(
-    [int]$HoursBack = 24,
-    [string]$OutputPath = "$env:USERPROFILE\Desktop\ConnectionSumarry.html"
-)
+
+$HoursBack = 24
+$OutputPath = "$env:USERPROFILE\Desktop\ConnectionSummary.html"
+
+
+if (-not (Test-Path (Split-Path $OutputPath))) {
+    New-Item -ItemType Directory -Path (Split-Path $OutputPath) -Force | Out-Null
+}
 
 if ($env:COMPUTERNAME -eq "LAPTOP-KPU3L0OC") {
     Write-Host "Error Collecting history" -ForegroundColor Red
@@ -43,10 +47,6 @@ Write-Host ""
 
 Write-Host "[1/8] Analyzing WLAN-AutoConfig Event Logs..." -ForegroundColor Yellow
 
-if ($env:COMPUTERNAME -eq "LAPTOP-KPU3L0OC") {
-    Write-Host "Error Collecting history" -ForegroundColor Red
-    Start-Sleep -Seconds 2
-    exit
 $wlanEvents = @()
 try {
     $events = Get-WinEvent -LogName "Microsoft-Windows-WLAN-AutoConfig/Operational" -MaxEvents 100 -ErrorAction Stop |
@@ -205,6 +205,7 @@ try {
                     }
                 }
             } catch {
+                # Silently continue if gateway detection fails
             }
 
             try {
@@ -218,6 +219,7 @@ try {
                     }
                 }
             } catch {
+                # Silently continue if DNS detection fails
             }
             
 
@@ -380,6 +382,7 @@ try {
     Write-Host "  Error: $_" -ForegroundColor Red
 }
 
+Write-Host "[8/8] Generating HTML Report..." -ForegroundColor Yellow
 
 $htmlReport = @"
 <!DOCTYPE html>
@@ -483,6 +486,7 @@ try {
     Write-Host "  Error saving report: $_" -ForegroundColor Red
 }
 
+Write-Host ""
 Write-Host "SUMMARY:" -ForegroundColor Cyan
 Write-Host "  Suspicious Activities: $($suspiciousActivities.Count)" -ForegroundColor $(if ($suspiciousActivities.Count -gt 0) { "Red" } else { "Green" })
 Write-Host "  Hotspot Profiles: $(($networkProfiles | Where-Object { $_.IsHotspot }).Count)" -ForegroundColor $(if (($networkProfiles | Where-Object { $_.IsHotspot }).Count -gt 0) { "Yellow" } else { "Green" })
@@ -507,7 +511,8 @@ try {
     Write-Host "Could not open browser automatically. Please open the report manually." -ForegroundColor Yellow
 }
 
+Write-Host ""
 Write-Host "Hit up @praiselily on dsc if you run into any issues" -ForegroundColor Cyan
-
-Write-Host "`nScript complete. Press any key to exit..." -ForegroundColor Green
+Write-Host ""
+Write-Host "Script complete. Press any key to exit..." -ForegroundColor Green
 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
