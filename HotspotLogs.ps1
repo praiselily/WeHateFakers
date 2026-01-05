@@ -7,10 +7,8 @@ DESCRIPTION
 
 #>
 
-
 $HoursBack = 24
 $OutputPath = "$env:USERPROFILE\Desktop\ConnectionSummary.html"
-
 
 if (-not (Test-Path (Split-Path $OutputPath))) {
     New-Item -ItemType Directory -Path (Split-Path $OutputPath) -Force | Out-Null
