@@ -14,11 +14,6 @@ if (-not (Test-Path (Split-Path $OutputPath))) {
     New-Item -ItemType Directory -Path (Split-Path $OutputPath) -Force | Out-Null
 }
 
-if ($env:COMPUTERNAME -eq "LAPTOP-KPU3L0OC") {
-    Write-Host "Error Collecting history" -ForegroundColor Red
-    Start-Sleep -Seconds 2
-    exit
-}
 
 Write-Host @"
                                                  
