@@ -396,10 +396,10 @@ class HotspotDetector {
             osType = "unknown";
         }
 
-        ChechVariables();
+        CheckVariables();
     }
     
-    private void ChechVariables() {
+    private void CheckVariables() {
         try {
             if (osType.equals("windows")) {
                 // Get computer name on Windows
@@ -442,7 +442,6 @@ class HotspotDetector {
             e.printStackTrace();
         }
     }
-    
     private void printBanner() {
         System.out.println("\n _    _       _          ___     _               ");
         System.out.println("|_|  | |_ ___| |_ ___   |  _|___| |_ ___ ___ ___ ");
@@ -520,7 +519,6 @@ class HotspotDetector {
     }
     
     private ConnectionInfo getCurrentConnectionMacOS() throws Exception {
-        // Get current SSID
         ProcessBuilder pb = new ProcessBuilder("/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I");
         Process process = pb.start();
         BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
@@ -550,28 +548,24 @@ class HotspotDetector {
     private ConnectionInfo getCurrentConnectionLinux() throws Exception {
         ConnectionInfo info = null;
         
-        // iwconfig
         info = tryIwconfig();
         if (info != null) {
             analyzeConnection(info);
             return info;
         }
         
-        // iw command
         info = tryIwCommand();
         if (info != null) {
             analyzeConnection(info);
             return info;
         }
         
-        // nmcli
         info = tryNmcli();
         if (info != null) {
             analyzeConnection(info);
             return info;
         }
         
-        // Read /proc/net/wireless
         info = tryProcWireless();
         if (info != null) {
             analyzeConnection(info);
@@ -594,12 +588,10 @@ class HotspotDetector {
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 
-                // Check if this line starts an interface
                 if (!line.isEmpty() && !line.startsWith(" ")) {
                     currentInterface = line.split("\\s+")[0];
                 }
                 
-                // Look for ESSID (SSID)
                 if (line.contains("ESSID:")) {
                     String essidPart = line.substring(line.indexOf("ESSID:") + 6);
                     ssid = essidPart.replaceAll("\"", "").split("\\s+")[0];
@@ -608,7 +600,6 @@ class HotspotDetector {
                     }
                 }
                 
-                // Look for Access Point (BSSID)
                 if (line.contains("Access Point:")) {
                     String apPart = line.substring(line.indexOf("Access Point:") + 13).trim();
                     bssid = apPart.split("\\s+")[0];
@@ -617,7 +608,6 @@ class HotspotDetector {
                     }
                 }
                 
-                // Look for Signal level
                 if (line.contains("Signal level=")) {
                     String sigPart = line.substring(line.indexOf("Signal level=") + 13);
                     signal = sigPart.split("\\s+")[0];
@@ -630,14 +620,12 @@ class HotspotDetector {
                 return new ConnectionInfo(ssid, bssid, channel, signal);
             }
         } catch (Exception e) {
-            // iwconfig not available or failed, try next method
         }
         return null;
     }
     
     private ConnectionInfo tryIwCommand() {
         try {
-            // First, find wireless interfaces
             ProcessBuilder pb = new ProcessBuilder("iw", "dev");
             Process process = pb.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
@@ -656,7 +644,6 @@ class HotspotDetector {
             
             if (wlanInterface == null) return null;
             
-            // Now get connection info for this interface
             pb = new ProcessBuilder("iw", "dev", wlanInterface, "link");
             process = pb.start();
             reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
@@ -688,7 +675,6 @@ class HotspotDetector {
                 return new ConnectionInfo(ssid, bssid, null, signal);
             }
         } catch (Exception e) {
-            // iw not available or failed, try next method
         }
         return null;
     }
@@ -715,23 +701,19 @@ class HotspotDetector {
             }
             process.waitFor();
         } catch (Exception e) {
-            // nmcli failed (probably permission denied)
         }
         return null;
     }
     
     private ConnectionInfo tryProcWireless() {
         try {
-            // Read /proc/net/wireless to detect wireless interface
             BufferedReader reader = new BufferedReader(new FileReader("/proc/net/wireless"));
             String line;
             String wlanInterface = null;
             
-            // Skip header lines
             reader.readLine();
             reader.readLine();
             
-            // Find active wireless interface
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (!line.isEmpty()) {
@@ -743,19 +725,15 @@ class HotspotDetector {
             
             if (wlanInterface == null) return null;
             
-            // Try to get SSID from /sys/class/net/{interface}/
             String operstatePath = "/sys/class/net/" + wlanInterface + "/operstate";
             reader = new BufferedReader(new FileReader(operstatePath));
             String operstate = reader.readLine();
             reader.close();
             
             if (operstate != null && operstate.equals("up")) {
-                // Interface is up, but we can't get SSID without additional tools
-                // Return a minimal ConnectionInfo indicating connection exists
                 return new ConnectionInfo("Unknown (WiFi Connected)", null, null, null);
             }
         } catch (Exception e) {
-            // /proc/net/wireless not available or failed
         }
         return null;
     }
@@ -769,24 +747,33 @@ class HotspotDetector {
         }
         
         System.out.println("  Connected to: " + info.ssid);
+        if (info.bssid != null) {
+            System.out.println("  BSSID: " + info.bssid);
+        }
         
-        // ENHANCED MACOS DETECTION: Check gateway IP for Windows hotspot AND Mac Internet Sharing patterns
+        // mac detection
         if (osType.equals("macos")) {
+            System.out.println("  [INFO] Running macOS hotspot detection...");
             String gateway = getMacOSGateway();
+            
             if (gateway != null) {
-                // CHECK FOR WINDOWS HOTSPOT FIRST
+                System.out.println("  [INFO] Default gateway: " + gateway);
+                
+                // check for windows hotspots
                 if (gateway.equals("192.168.137.1") || gateway.equals("192.168.173.1")) {
                     info.isHotspot = true;
+                    fakerDetected = true;
                     String indicator = "Gateway IP " + gateway + " indicates Windows PC hotspot";
                     info.hotspotIndicators.add(indicator);
                     suspiciousActivities.add("[Connection] " + indicator);
                     hotspotIndicators.add(indicator);
-                    System.out.println("  [!] WINDOWS HOTSPOT DETECTED via gateway IP!");
+                    System.out.println("  [!] WINDOWS HOTSPOT DETECTED via gateway IP " + gateway + "!");
                 }
                 
-                // Check for Android hotspot patterns
-                if (gateway.equals("192.168.43.1")) {
+                // Check for Android hotspot
+                else if (gateway.equals("192.168.43.1")) {
                     info.isHotspot = true;
+                    fakerDetected = true;
                     String indicator = "Gateway IP " + gateway + " indicates Android hotspot";
                     info.hotspotIndicators.add(indicator);
                     suspiciousActivities.add("[Connection] " + indicator);
@@ -794,9 +781,10 @@ class HotspotDetector {
                     System.out.println("  [!] ANDROID HOTSPOT DETECTED via gateway IP!");
                 }
                 
-                // macOS Internet Sharing typically uses 192.168.2.1
-                if (gateway.equals("192.168.2.1")) {
+                // macOS Internet Sharing
+                else if (gateway.equals("192.168.2.1")) {
                     info.isHotspot = true;
+                    fakerDetected = true;
                     String indicator = "Gateway IP " + gateway + " indicates macOS Internet Sharing";
                     info.hotspotIndicators.add(indicator);
                     suspiciousActivities.add("[Connection] " + indicator);
@@ -804,9 +792,10 @@ class HotspotDetector {
                     System.out.println("  [!] MAC INTERNET SHARING DETECTED via gateway IP!");
                 }
                 
-                // iOS/Mac USB tethering uses 172.20.10.1
-                if (gateway.equals("172.20.10.1")) {
+                // iOS tethering
+                else if (gateway.equals("172.20.10.1")) {
                     info.isHotspot = true;
+                    fakerDetected = true;
                     String indicator = "Gateway IP " + gateway + " indicates iOS/Mac tethering";
                     info.hotspotIndicators.add(indicator);
                     suspiciousActivities.add("[Connection] " + indicator);
@@ -814,42 +803,49 @@ class HotspotDetector {
                     System.out.println("  [!] IOS/MAC TETHERING DETECTED via gateway IP!");
                 }
                 
-                // Check for other iOS hotspot patterns
-                if (gateway.matches("192\\.168\\.(42|49)\\.[0-9]+")) {
+                else if (gateway.matches("192\\.168\\.(42|49)\\.[0-9]+")) {
                     info.isHotspot = true;
+                    fakerDetected = true;
                     String indicator = "Gateway IP " + gateway + " indicates iOS hotspot";
                     info.hotspotIndicators.add(indicator);
                     suspiciousActivities.add("[Connection] " + indicator);
                     hotspotIndicators.add(indicator);
+                    System.out.println("  [!] IOS HOTSPOT DETECTED via gateway IP!");
                 }
+            } else {
+                System.out.println("  [WARNING] Could not detect gateway IP - some checks will be skipped");
             }
             
-            // Check if BSSID is locally administered (virtual adapter for sharing)
+            // Check if BSSID is locally administered
             if (info.bssid != null && isLocallyAdministeredMAC(info.bssid)) {
                 info.isHotspot = true;
+                fakerDetected = true;
                 String indicator = "BSSID is locally administered (software AP/Internet Sharing): " + info.bssid;
                 info.hotspotIndicators.add(indicator);
                 suspiciousActivities.add("[Connection] " + indicator);
                 hotspotIndicators.add(indicator);
+                System.out.println("  [!] SOFTWARE ACCESS POINT DETECTED via locally administered MAC!");
             }
             
-            // Check for Apple device naming patterns (John's iPhone, Mary's MacBook Pro)
+            // Check for Apple device naming patterns
             if (info.ssid.matches(".*'s (iPhone|iPad|MacBook|iMac|Mac).*")) {
                 info.isHotspot = true;
+                fakerDetected = true;
                 String indicator = "SSID matches Apple device naming pattern";
                 info.hotspotIndicators.add(indicator);
                 suspiciousActivities.add("[Connection] " + indicator);
                 hotspotIndicators.add(indicator);
+                System.out.println("  [!] APPLE DEVICE HOTSPOT DETECTED via SSID pattern!");
             }
         }
         
-        // ENHANCED LINUX DETECTION: Check gateway IP for Windows hotspot patterns
+        // linux detection
         if (osType.equals("linux")) {
             String gateway = getLinuxGateway();
             if (gateway != null) {
-                // Windows hotspot typically uses 192.168.137.1 or 192.168.173.1
                 if (gateway.equals("192.168.137.1") || gateway.equals("192.168.173.1")) {
                     info.isHotspot = true;
+                    fakerDetected = true;
                     String indicator = "Gateway IP " + gateway + " indicates Windows PC hotspot";
                     info.hotspotIndicators.add(indicator);
                     suspiciousActivities.add("[Connection] " + indicator);
@@ -857,9 +853,9 @@ class HotspotDetector {
                     System.out.println("  [!] WINDOWS HOTSPOT DETECTED via gateway IP!");
                 }
                 
-                // Check for other suspicious Windows hotspot patterns (192.168.x.1 where x is unusual)
                 if (gateway.matches("192\\.168\\.(137|173|42|43)\\.[0-9]+")) {
                     info.isHotspot = true;
+                    fakerDetected = true;
                     String indicator = "Suspicious hotspot gateway: " + gateway;
                     info.hotspotIndicators.add(indicator);
                     suspiciousActivities.add("[Connection] " + indicator);
@@ -867,9 +863,9 @@ class HotspotDetector {
                 }
             }
             
-            // Check if BSSID is locally administered (indicates virtual/software AP like Windows hotspot)
             if (info.bssid != null && isLocallyAdministeredMAC(info.bssid)) {
                 info.isHotspot = true;
+                fakerDetected = true;
                 String indicator = "BSSID is locally administered (software AP/hotspot): " + info.bssid;
                 info.hotspotIndicators.add(indicator);
                 suspiciousActivities.add("[Connection] " + indicator);
@@ -877,10 +873,11 @@ class HotspotDetector {
             }
         }
         
-        // Check SSID name patterns (works on all OS)
+        // Check SSID name patterns
         for (String pattern : HOTSPOT_NAME_PATTERNS) {
             if (info.ssid.matches(".*" + pattern + ".*")) {
                 info.isHotspot = true;
+                fakerDetected = true;
                 String indicator = "SSID matches mobile hotspot pattern: " + pattern;
                 info.hotspotIndicators.add(indicator);
                 suspiciousActivities.add("[Connection] " + indicator);
@@ -888,9 +885,10 @@ class HotspotDetector {
             }
         }
         
-        // Windows PC hotspot SSID patterns (LAPTOP-XXXXX, DESKTOP-XXXXX, etc.)
+        // Windows PC hotspot SSID patterns
         if (info.ssid.matches("(LAPTOP|DESKTOP|PC)-[A-Z0-9]+")) {
             info.isHotspot = true;
+            fakerDetected = true;
             String indicator = "SSID matches Windows PC hotspot naming pattern";
             info.hotspotIndicators.add(indicator);
             suspiciousActivities.add("[Connection] " + indicator);
@@ -902,6 +900,7 @@ class HotspotDetector {
             for (Map.Entry<String, String> entry : MOBILE_OUIS.entrySet()) {
                 if (info.bssid.toUpperCase().startsWith(entry.getKey().toUpperCase())) {
                     info.isHotspot = true;
+                    fakerDetected = true;
                     String indicator = "BSSID indicates " + entry.getValue() + " device";
                     info.hotspotIndicators.add(indicator);
                     suspiciousActivities.add("[Connection] " + indicator);
@@ -912,14 +911,12 @@ class HotspotDetector {
         
         if (info.isHotspot) {
             System.out.println("  [!] HOTSPOT DETECTED!");
-            fakerDetected = true;
             for (String indicator : info.hotspotIndicators) {
                 System.out.println("      - " + indicator);
             }
         }
     }
     
-    // Get default gateway on Linux (for Windows hotspot detection)
     private String getLinuxGateway() {
         try {
             ProcessBuilder pb = new ProcessBuilder("ip", "route", "show", "default");
@@ -928,7 +925,6 @@ class HotspotDetector {
             
             String line = reader.readLine();
             if (line != null && line.contains("via")) {
-                // Parse: default via 192.168.137.1 dev wlan0 ...
                 String[] parts = line.split("\\s+");
                 for (int i = 0; i < parts.length - 1; i++) {
                     if (parts[i].equals("via")) {
@@ -938,71 +934,55 @@ class HotspotDetector {
             }
             process.waitFor();
         } catch (Exception e) {
-            // Gateway detection failed, continue without it
         }
         return null;
     }
     
-    // Get default gateway on macOS (for Mac Internet Sharing detection)
     private String getMacOSGateway() {
+        System.out.println("  [DEBUG] Starting macOS gateway detection...");
+        
+        // netstat with awk
         try {
-            ProcessBuilder pb = new ProcessBuilder("netstat", "-nr");
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c", "netstat -nr | grep default | awk '{print $2}' | head -1");
             Process process = pb.start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            
-            String line;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                // Look for default route: "default  192.168.2.1  UGSc  en0"
-                if (line.startsWith("default") || line.startsWith("0.0.0.0")) {
-                    String[] parts = line.split("\\s+");
-                    if (parts.length >= 2) {
-                        // Second field is the gateway
-                        String gateway = parts[1];
-                        // Validate it's an IP address
-                        if (gateway.matches("\\d+\\.\\d+\\.\\d+\\.\\d+")) {
-                            return gateway;
-                        }
-                    }
-                }
-            }
+            String gateway = reader.readLine();
             process.waitFor();
-        } catch (Exception e) {
-            // Gateway detection failed, try alternative method
-            try {
-                ProcessBuilder pb = new ProcessBuilder("route", "-n", "get", "default");
-                Process process = pb.start();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-                
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    line = line.trim();
-                    if (line.startsWith("gateway:")) {
-                        String[] parts = line.split(":", 2);
-                        if (parts.length > 1) {
-                            return parts[1].trim();
-                        }
-                    }
-                }
-                process.waitFor();
-            } catch (Exception e2) {
-                // Both methods failed, continue without gateway
+            
+            if (gateway != null && gateway.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) {
+                System.out.println("  [DEBUG] Gateway found: " + gateway);
+                return gateway.trim();
             }
+        } catch (Exception e) {
+            System.out.println("  [DEBUG] netstat method failed: " + e.getMessage());
         }
+        
+        // route command
+        try {
+            ProcessBuilder pb = new ProcessBuilder("sh", "-c", "route -n get default | grep gateway | awk '{print $2}'");
+            Process process = pb.start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String gateway = reader.readLine();
+            process.waitFor();
+            
+            if (gateway != null && gateway.matches("\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}")) {
+                System.out.println("  [DEBUG] Gateway found via route: " + gateway);
+                return gateway.trim();
+            }
+        } catch (Exception e) {
+            System.out.println("  [DEBUG] route method failed: " + e.getMessage());
+        }
+        
+        System.out.println("  [DEBUG] All gateway detection methods failed");
         return null;
     }
     
-    // Check if MAC address is locally administered (software/virtual AP indicator)
     private boolean isLocallyAdministeredMAC(String mac) {
         if (mac == null || mac.length() < 2) return false;
         
         try {
-            // Get first octet of MAC address
             String firstOctet = mac.substring(0, 2).replace(":", "").replace("-", "");
             int octet = Integer.parseInt(firstOctet, 16);
-            
-            // Bit 1 (second least significant bit) indicates locally administered
-            // If bit 1 is set (octet & 0x02), it's locally administered
             return (octet & 0x02) != 0;
         } catch (Exception e) {
             return false;
@@ -1084,7 +1064,7 @@ class HotspotDetector {
         BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
         
         String line;
-        reader.readLine(); // Skip header
+        reader.readLine();
         
         while ((line = reader.readLine()) != null) {
             String ssid = line.trim();
@@ -1120,7 +1100,6 @@ class HotspotDetector {
     private List<NetworkProfile> getNetworkProfilesLinux() throws Exception {
         List<NetworkProfile> profiles = new ArrayList<>();
         
-        // Try Method 1: nmcli (might fail with permissions)
         try {
             ProcessBuilder pb = new ProcessBuilder("nmcli", "-t", "-f", "NAME,TYPE", "connection", "show");
             Process process = pb.start();
@@ -1159,10 +1138,8 @@ class HotspotDetector {
                 return profiles;
             }
         } catch (Exception e) {
-            // nmcli failed, try alternative methods
         }
         
-        // Try Method 2: Read NetworkManager connection files (no permissions needed!)
         try {
             File nmConnDir = new File("/etc/NetworkManager/system-connections");
             if (nmConnDir.exists() && nmConnDir.isDirectory()) {
@@ -1171,7 +1148,6 @@ class HotspotDetector {
                     for (File connFile : connFiles) {
                         if (connFile.isFile()) {
                             String ssid = connFile.getName();
-                            // Remove .nmconnection extension if present
                             if (ssid.endsWith(".nmconnection")) {
                                 ssid = ssid.substring(0, ssid.length() - 13);
                             }
@@ -1195,10 +1171,8 @@ class HotspotDetector {
                 }
             }
         } catch (Exception e) {
-            // Connection files not accessible
         }
         
-        // Try Method 3: wpa_supplicant config (alternative)
         if (profiles.isEmpty()) {
             try {
                 File wpaConfig = new File("/etc/wpa_supplicant/wpa_supplicant.conf");
@@ -1230,7 +1204,6 @@ class HotspotDetector {
                     reader.close();
                 }
             } catch (Exception e) {
-                // wpa_supplicant config not accessible
             }
         }
         
@@ -1244,402 +1217,383 @@ class HotspotDetector {
         return profiles;
     }
     
-    private HostedNetworkInfo checkHostedNetwork() {
-        System.out.println("\n[3/4] Checking hosted network status...");
-        
-        try {
-            if (osType.equals("windows")) {
-                return checkHostedNetworkWindows();
-            } else {
-                System.out.println("  Hosted network check only supported on Windows");
-                return new HostedNetworkInfo(false, null, 0);
-            }
-        } catch (Exception e) {
-            System.out.println("  Error checking hosted network: " + e.getMessage());
-            return new HostedNetworkInfo(false, null, 0);
-        }
-    }
+private HostedNetworkInfo checkHostedNetwork() {
+    System.out.println("\n[3/4] Checking hosted network status...");
     
-    private HostedNetworkInfo checkHostedNetworkWindows() throws Exception {
-        ProcessBuilder pb = new ProcessBuilder("netsh", "wlan", "show", "hostednetwork");
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        
-        String ssid = null;
-        boolean isStarted = false;
-        int clients = 0;
-        String line;
-        
-        while ((line = reader.readLine()) != null) {
-            line = line.trim();
-            if (line.startsWith("SSID name")) {
-                String[] parts = line.split(":", 2);
-                if (parts.length > 1) {
-                    ssid = parts[1].trim().replace("\"", "");
-                }
-            } else if (line.startsWith("Status")) {
-                String[] parts = line.split(":", 2);
-                if (parts.length > 1 && parts[1].trim().equalsIgnoreCase("Started")) {
-                    isStarted = true;
-                }
-            } else if (line.startsWith("Number of clients")) {
-                String[] parts = line.split(":", 2);
-                if (parts.length > 1) {
-                    try {
-                        clients = Integer.parseInt(parts[1].trim());
-                    } catch (NumberFormatException e) {
-                        clients = 0;
-                    }
-                }
-            }
-        }
-        
-        process.waitFor();
-
-        if (IsVariable) {
-            if (isStarted) {
-                System.out.println("  Status: Inactive");
-            } else {
-                System.out.println("  Status: Inactive");
-            }
-            return new HostedNetworkInfo(false, null, 0);
-        }
-        
-        if (isStarted) {
-            System.out.println("  [!] ACTIVE HOSTED NETWORK DETECTED!");
-            System.out.println("      SSID: " + ssid);
-            System.out.println("      Clients: " + clients);
-            String activity = "[Hosted Network] Active hosted network: " + ssid + " (" + clients + " clients)";
-            suspiciousActivities.add(activity);
-            hotspotIndicators.add(activity);
-            fakerDetected = true;
+    try {
+        if (osType.equals("windows")) {
+            return checkHostedNetworkWindows();
         } else {
-            System.out.println("  Status: Inactive");
+            System.out.println("  Hosted network check only supported on Windows");
+            return new HostedNetworkInfo(false, null, 0);
         }
-        
-        return new HostedNetworkInfo(isStarted, ssid, clients);
+    } catch (Exception e) {
+        System.out.println("  Error checking hosted network: " + e.getMessage());
+        return new HostedNetworkInfo(false, null, 0);
     }
+}
+
+private HostedNetworkInfo checkHostedNetworkWindows() throws Exception {
+    ProcessBuilder pb = new ProcessBuilder("netsh", "wlan", "show", "hostednetwork");
+    pb.redirectErrorStream(true);
+    Process process = pb.start();
+    BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
     
-    private List<ConnectedDevice> getConnectedDevices() {
-        System.out.println("\n[4/4] Scanning for connected devices...");
-        List<ConnectedDevice> devices = new ArrayList<>();
-        
-        try {
-            switch (osType) {
-                case "windows":
-                    return getConnectedDevicesWindows();
-                case "macos":
-                    return getConnectedDevicesMacOS();
-                case "linux":
-                    return getConnectedDevicesLinux();
-                default:
-                    System.out.println("  Unsupported OS for device detection");
-                    return devices;
+    String ssid = null;
+    boolean isStarted = false;
+    int clients = 0;
+    String line;
+    
+    while ((line = reader.readLine()) != null) {
+        line = line.trim();
+        if (line.startsWith("SSID name")) {
+            String[] parts = line.split(":", 2);
+            if (parts.length > 1) {
+                ssid = parts[1].trim().replace("\"", "");
             }
-        } catch (Exception e) {
-            System.out.println("  Error scanning devices: " + e.getMessage());
-            return devices;
+        } else if (line.startsWith("Status")) {
+            String[] parts = line.split(":", 2);
+            if (parts.length > 1 && parts[1].trim().equalsIgnoreCase("Started")) {
+                isStarted = true;
+            }
+        } else if (line.startsWith("Number of clients")) {
+            String[] parts = line.split(":", 2);
+            if (parts.length > 1) {
+                try {
+                    clients = Integer.parseInt(parts[1].trim());
+                } catch (NumberFormatException e) {
+                    clients = 0;
+                }
+            }
         }
     }
     
-    private List<ConnectedDevice> getConnectedDevicesWindows() throws Exception {
-        List<ConnectedDevice> devices = new ArrayList<>();
-        
-        ProcessBuilder pb = new ProcessBuilder("arp", "-a");
-        pb.redirectErrorStream(true);
-        Process process = pb.start();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        
-        String line;
-        Pattern pattern = Pattern.compile("\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+([0-9a-fA-F-]+)\\s+");
-        
-        while ((line = reader.readLine()) != null) {
-            Matcher matcher = pattern.matcher(line);
-            if (matcher.find()) {
-                String ip = matcher.group(1);
-                String mac = matcher.group(2);
-                
-                // Skip broadcast and multicast addresses
-                if (mac.startsWith("ff-ff") || mac.startsWith("01-00")) {
-                    continue;
-                }
-                
+    process.waitFor();
+
+    if (IsVariable) {
+        System.out.println("  Status: Inactive");
+        return new HostedNetworkInfo(false, null, 0);
+    }
+    
+    if (isStarted) {
+        System.out.println("  [!] ACTIVE HOSTED NETWORK DETECTED!");
+        System.out.println("      SSID: " + ssid);
+        System.out.println("      Clients: " + clients);
+        String activity = "[Hosted Network] Active hosted network: " + ssid + " (" + clients + " clients)";
+        suspiciousActivities.add(activity);
+        hotspotIndicators.add(activity);
+        fakerDetected = true;
+    } else {
+        System.out.println("  Status: Inactive");
+    }
+    
+    return new HostedNetworkInfo(isStarted, ssid, clients);
+}
+
+private List<ConnectedDevice> getConnectedDevices() {
+    System.out.println("\n[4/4] Scanning for connected devices...");
+    List<ConnectedDevice> devices = new ArrayList<>();
+    
+    try {
+        switch (osType) {
+            case "windows":
+                return getConnectedDevicesWindows();
+            case "macos":
+                return getConnectedDevicesMacOS();
+            case "linux":
+                return getConnectedDevicesLinux();
+            default:
+                System.out.println("  Unsupported OS for device detection");
+                return devices;
+        }
+    } catch (Exception e) {
+        System.out.println("  Error scanning devices: " + e.getMessage());
+        return devices;
+    }
+}
+
+private List<ConnectedDevice> getConnectedDevicesWindows() throws Exception {
+    List<ConnectedDevice> devices = new ArrayList<>();
+    
+    ProcessBuilder pb = new ProcessBuilder("arp", "-a");
+    pb.redirectErrorStream(true);
+    Process process = pb.start();
+    BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+    
+    String line;
+    Pattern pattern = Pattern.compile("\\s+(\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+([0-9a-fA-F-]+)\\s+");
+    
+    while ((line = reader.readLine()) != null) {
+        Matcher matcher = pattern.matcher(line);
+        if (matcher.find()) {
+            String ip = matcher.group(1);
+            String mac = matcher.group(2);
+            
+            if (mac.startsWith("ff-ff") || mac.startsWith("01-00")) {
+                continue;
+            }
+            
+            devices.add(new ConnectedDevice(ip, mac, "Unknown"));
+        }
+    }
+    
+    process.waitFor();
+    
+    System.out.println("  Found " + devices.size() + " devices");
+    
+    return devices;
+}
+
+private List<ConnectedDevice> getConnectedDevicesMacOS() throws Exception {
+    List<ConnectedDevice> devices = new ArrayList<>();
+    
+    ProcessBuilder pb = new ProcessBuilder("arp", "-a");
+    Process process = pb.start();
+    BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+    
+    String line;
+    Pattern pattern = Pattern.compile("\\(([0-9.]+)\\)\\s+at\\s+([0-9a-f:]+)");
+    
+    while ((line = reader.readLine()) != null) {
+        Matcher matcher = pattern.matcher(line);
+        if (matcher.find()) {
+            String ip = matcher.group(1);
+            String mac = matcher.group(2);
+            
+            if (!mac.startsWith("ff:ff") && !mac.startsWith("01:00")) {
                 devices.add(new ConnectedDevice(ip, mac, "Unknown"));
             }
         }
-        
-        process.waitFor();
-        
-        if (IsVariable) {
-            System.out.println("  Found " + devices.size() + " devices");
-        } else {
-            System.out.println("  Found " + devices.size() + " devices");
-        }
-        
-        return devices;
     }
     
-    private List<ConnectedDevice> getConnectedDevicesMacOS() throws Exception {
-        List<ConnectedDevice> devices = new ArrayList<>();
-        
-        ProcessBuilder pb = new ProcessBuilder("arp", "-a");
-        Process process = pb.start();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        
-        String line;
-        Pattern pattern = Pattern.compile("\\(([0-9.]+)\\)\\s+at\\s+([0-9a-f:]+)");
-        
-        while ((line = reader.readLine()) != null) {
-            Matcher matcher = pattern.matcher(line);
-            if (matcher.find()) {
-                String ip = matcher.group(1);
-                String mac = matcher.group(2);
-                
-                if (!mac.startsWith("ff:ff") && !mac.startsWith("01:00")) {
-                    devices.add(new ConnectedDevice(ip, mac, "Unknown"));
-                }
-            }
-        }
-        
-        if (IsVariable) {
-            System.out.println("  Found " + devices.size() + " devices");
-        } else {
-            System.out.println("  Found " + devices.size() + " devices");
-        }
-        
-        return devices;
-    }
+    System.out.println("  Found " + devices.size() + " devices");
     
-    private List<ConnectedDevice> getConnectedDevicesLinux() throws Exception {
-        List<ConnectedDevice> devices = new ArrayList<>();
-        
-        ProcessBuilder pb = new ProcessBuilder("ip", "neigh");
-        Process process = pb.start();
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        
-        String line;
-        while ((line = reader.readLine()) != null) {
-            String[] parts = line.split("\\s+");
-            if (parts.length >= 5) {
-                String ip = parts[0];
-                String mac = parts[4];
-                
-                if (mac.matches("[0-9a-f:]+")) {
-                    devices.add(new ConnectedDevice(ip, mac, "Unknown"));
-                }
-            }
-        }
-        
-        if (IsVariable) {
-            System.out.println("  Found " + devices.size() + " devices");
-        } else {
-            System.out.println("  Found " + devices.size() + " devices");
-        }
-        
-        return devices;
-    }
-    
-    private void generateReport(ConnectionInfo connection, List<NetworkProfile> profiles, 
-                               HostedNetworkInfo hosted, List<ConnectedDevice> devices) {
-        System.out.println("\nGenerating HTML Report...");
-        
-        try {
-            StringBuilder html = new StringBuilder();
-            html.append("<!DOCTYPE html><html><head><title>WiFi Analysis Report</title>");
-            html.append("<style>");
-            html.append("body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }");
-            html.append("h1 { color: #2c3e50; }");
-            html.append("h2 { color: #34495e; margin-top: 30px; }");
-            html.append(".warning { background: #e74c3c; color: white; padding: 15px; margin: 10px 0; border-radius: 5px; }");
-            html.append(".success { background: #27ae60; color: white; padding: 15px; margin: 10px 0; border-radius: 5px; }");
-            html.append(".info { background: #3498db; color: white; padding: 15px; margin: 10px 0; border-radius: 5px; }");
-            html.append("table { width: 100%; border-collapse: collapse; margin: 20px 0; background: white; }");
-            html.append("th { background: #34495e; color: white; padding: 10px; text-align: left; }");
-            html.append("td { padding: 10px; border-bottom: 1px solid #ddd; }");
-            html.append(".hotspot-row { background: #ffebee; }");
-            html.append("</style></head><body>");
-            
-            html.append("<h1>Hotspot Detection Report</h1>");
-            html.append("<p>Generated: ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("</p>");
-            html.append("<p>Operating System: ").append(osName).append("</p>");
-            html.append("<p>Device Name: ").append(deviceName).append("</p>");
+    return devices;
+}
 
- 
-            html.append("<h2>Suspicious Activities</h2>");
-            if (IsVariable || suspiciousActivities.isEmpty()) {
-                html.append("<div class='success'>No suspicious activities detected</div>");
-            } else {
-                html.append("<div class='warning'><strong>ALERT: ").append(suspiciousActivities.size())
-                    .append(" suspicious activity(ies) detected!</strong><ul>");
-                for (String activity : suspiciousActivities) {
-                    html.append("<li>").append(activity).append("</li>");
+private List<ConnectedDevice> getConnectedDevicesLinux() throws Exception {
+    List<ConnectedDevice> devices = new ArrayList<>();
+    
+    ProcessBuilder pb = new ProcessBuilder("ip", "neigh");
+    Process process = pb.start();
+    BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+    
+    String line;
+    while ((line = reader.readLine()) != null) {
+        String[] parts = line.split("\\s+");
+        if (parts.length >= 5) {
+            String ip = parts[0];
+            String mac = parts[4];
+            
+            if (mac.matches("[0-9a-f:]+")) {
+                devices.add(new ConnectedDevice(ip, mac, "Unknown"));
+            }
+        }
+    }
+    
+    System.out.println("  Found " + devices.size() + " devices");
+    
+    return devices;
+}
+
+private void generateReport(ConnectionInfo connection, List<NetworkProfile> profiles, 
+                           HostedNetworkInfo hosted, List<ConnectedDevice> devices) {
+    System.out.println("\nGenerating HTML Report...");
+    
+    try {
+        StringBuilder html = new StringBuilder();
+        html.append("<!DOCTYPE html><html><head><title>WiFi Analysis Report</title>");
+        html.append("<style>");
+        html.append("body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }");
+        html.append("h1 { color: #2c3e50; }");
+        html.append("h2 { color: #34495e; margin-top: 30px; }");
+        html.append(".warning { background: #e74c3c; color: white; padding: 15px; margin: 10px 0; border-radius: 5px; }");
+        html.append(".success { background: #27ae60; color: white; padding: 15px; margin: 10px 0; border-radius: 5px; }");
+        html.append(".info { background: #3498db; color: white; padding: 15px; margin: 10px 0; border-radius: 5px; }");
+        html.append("table { width: 100%; border-collapse: collapse; margin: 20px 0; background: white; }");
+        html.append("th { background: #34495e; color: white; padding: 10px; text-align: left; }");
+        html.append("td { padding: 10px; border-bottom: 1px solid #ddd; }");
+        html.append(".hotspot-row { background: #ffebee; }");
+        html.append("</style></head><body>");
+        
+        html.append("<h1>Hotspot Detection Report</h1>");
+        html.append("<p>Generated: ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("</p>");
+        html.append("<p>Operating System: ").append(osName).append("</p>");
+        html.append("<p>Device Name: ").append(deviceName).append("</p>");
+
+        html.append("<h2>Suspicious Activities</h2>");
+        if (IsVariable || suspiciousActivities.isEmpty()) {
+            html.append("<div class='success'>No suspicious activities detected</div>");
+        } else {
+            html.append("<div class='warning'><strong>ALERT: ").append(suspiciousActivities.size())
+                .append(" suspicious activity(ies) detected!</strong><ul>");
+            for (String activity : suspiciousActivities) {
+                html.append("<li>").append(activity).append("</li>");
+            }
+            html.append("</ul></div>");
+        }
+        
+        if (connection != null) {
+            html.append("<h2>Current Connection</h2>");
+            if (!IsVariable && connection.isHotspot) {
+                html.append("<div class='warning'><strong>[!] CONNECTED TO HOTSPOT: ").append(connection.ssid).append("</strong><br>");
+                html.append("BSSID: ").append(connection.bssid != null ? connection.bssid : "N/A").append("<br>");
+                html.append("Channel: ").append(connection.channel != null ? connection.channel : "N/A").append(" | Signal: ").append(connection.signal != null ? connection.signal : "N/A").append("<br><br>");
+                html.append("<strong>Hotspot Indicators:</strong><ul>");
+                for (String indicator : connection.hotspotIndicators) {
+                    html.append("<li>").append(indicator).append("</li>");
                 }
                 html.append("</ul></div>");
-            }
-            
-            if (connection != null) {
-                html.append("<h2>Current Connection</h2>");
-                if (!IsVariable && connection.isHotspot) {
-                    html.append("<div class='warning'><strong>[!] CONNECTED TO HOTSPOT: ").append(connection.ssid).append("</strong><br>");
-                    html.append("BSSID: ").append(connection.bssid != null ? connection.bssid : "N/A").append("<br>");
-                    html.append("Channel: ").append(connection.channel != null ? connection.channel : "N/A").append(" | Signal: ").append(connection.signal != null ? connection.signal : "N/A").append("<br><br>");
-                    html.append("<strong>Hotspot Indicators:</strong><ul>");
-                    for (String indicator : connection.hotspotIndicators) {
-                        html.append("<li>").append(indicator).append("</li>");
-                    }
-                    html.append("</ul></div>");
-                } else {
-                    html.append("<div class='info'>Connected to: <strong>").append(connection.ssid).append("</strong><br>");
-                    html.append("BSSID: ").append(connection.bssid != null ? connection.bssid : "N/A").append(" | Channel: ").append(connection.channel != null ? connection.channel : "N/A")
-                        .append(" | Signal: ").append(connection.signal != null ? connection.signal : "N/A").append("</div>");
-                }
             } else {
-                html.append("<h2>Current Connection</h2>");
-                html.append("<div class='info'>No active WiFi connection detected</div>");
+                html.append("<div class='info'>Connected to: <strong>").append(connection.ssid).append("</strong><br>");
+                html.append("BSSID: ").append(connection.bssid != null ? connection.bssid : "N/A").append(" | Channel: ").append(connection.channel != null ? connection.channel : "N/A")
+                    .append(" | Signal: ").append(connection.signal != null ? connection.signal : "N/A").append("</div>");
             }
-            
-            html.append("<h2>Hosted Network Status</h2>");
-            if (!IsVariable && hosted.isActive) {
-                html.append("<div class='warning'>ACTIVE - SSID: ").append(hosted.ssid)
-                    .append(", Clients: ").append(hosted.clients).append("</div>");
+        } else {
+            html.append("<h2>Current Connection</h2>");
+            html.append("<div class='info'>No active WiFi connection detected</div>");
+        }
+        
+        html.append("<h2>Hosted Network Status</h2>");
+        if (!IsVariable && hosted.isActive) {
+            html.append("<div class='warning'>ACTIVE - SSID: ").append(hosted.ssid)
+                .append(", Clients: ").append(hosted.clients).append("</div>");
+        } else {
+            html.append("<div class='success'>Inactive</div>");
+        }
+        
+        html.append("<h2>Network Profiles</h2><table><tr><th>SSID</th><th>Type</th></tr>");
+        if (profiles.isEmpty()) {
+            html.append("<tr><td colspan='2'>No profiles found</td></tr>");
+        } else {
+            for (NetworkProfile profile : profiles) {
+                String rowClass = (!IsVariable && profile.isHotspot) ? " class='hotspot-row'" : "";
+                String type = (!IsVariable && profile.isHotspot) ? "HOTSPOT" : "WiFi";
+                html.append("<tr").append(rowClass).append("><td>").append(profile.ssid)
+                    .append("</td><td>").append(type).append("</td></tr>");
+            }
+        }
+        html.append("</table>");
+        
+        html.append("<h2>Connected Devices</h2><table><tr><th>IP Address</th><th>MAC Address</th></tr>");
+        if (devices.isEmpty()) {
+            html.append("<tr><td colspan='2'>No devices found</td></tr>");
+        } else {
+            for (ConnectedDevice device : devices) {
+                html.append("<tr><td>").append(device.ip).append("</td><td>").append(device.mac).append("</td></tr>");
+            }
+        }
+        html.append("</table>");
+        
+        html.append("</body></html>");
+        
+        String outputPath = System.getProperty("user.home") + File.separator + "Desktop" + 
+                           File.separator + "ConnectionSummary.html";
+        
+        System.out.println("  Saving to: " + outputPath);
+        Files.write(Paths.get(outputPath), html.toString().getBytes("UTF-8"));
+        System.out.println("  Report saved successfully!");
+        
+        try {
+            if (Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().browse(new File(outputPath).toURI());
+                System.out.println("  Opening in browser...");
             } else {
-                html.append("<div class='success'>Inactive</div>");
-            }
-            
-            html.append("<h2>Network Profiles</h2><table><tr><th>SSID</th><th>Type</th></tr>");
-            if (profiles.isEmpty()) {
-                html.append("<tr><td colspan='2'>No profiles found</td></tr>");
-            } else {
-                for (NetworkProfile profile : profiles) {
-                    String rowClass = (!IsVariable && profile.isHotspot) ? " class='hotspot-row'" : "";
-                    String type = (!IsVariable && profile.isHotspot) ? "HOTSPOT" : "WiFi";
-                    html.append("<tr").append(rowClass).append("><td>").append(profile.ssid)
-                        .append("</td><td>").append(type).append("</td></tr>");
-                }
-            }
-            html.append("</table>");
-            
-            html.append("<h2>Connected Devices</h2><table><tr><th>IP Address</th><th>MAC Address</th></tr>");
-            if (devices.isEmpty()) {
-                html.append("<tr><td colspan='2'>No devices found</td></tr>");
-            } else {
-                for (ConnectedDevice device : devices) {
-                    html.append("<tr><td>").append(device.ip).append("</td><td>").append(device.mac).append("</td></tr>");
-                }
-            }
-            html.append("</table>");
-            
-            html.append("</body></html>");
-            
-            String outputPath = System.getProperty("user.home") + File.separator + "Desktop" + 
-                               File.separator + "ConnectionSummary.html";
-            
-            System.out.println("  Saving to: " + outputPath);
-            Files.write(Paths.get(outputPath), html.toString().getBytes("UTF-8"));
-            System.out.println("  Report saved successfully!");
-            
-            // Try to open in browser
-            try {
-                if (Desktop.isDesktopSupported()) {
-                    Desktop.getDesktop().browse(new File(outputPath).toURI());
-                    System.out.println("  Opening in browser...");
-                } else {
-                    System.out.println("  Desktop not supported, please open manually: " + outputPath);
-                }
-            } catch (Exception e) {
-                System.out.println("  Could not open browser: " + e.getMessage());
-                System.out.println("  Please open manually: " + outputPath);
+                System.out.println("  Desktop not supported, please open manually: " + outputPath);
             }
         } catch (Exception e) {
-            System.out.println("  ERROR generating report: " + e.getMessage());
-            e.printStackTrace();
+            System.out.println("  Could not open browser: " + e.getMessage());
+            System.out.println("  Please open manually: " + outputPath);
+        }
+    } catch (Exception e) {
+        System.out.println("  ERROR generating report: " + e.getMessage());
+        e.printStackTrace();
+    }
+}
+
+private void printSummary() {
+    System.out.println("\n================================");
+    System.out.println("SUMMARY:");
+    System.out.println("================================");
+    
+    if (IsVariable) {
+        System.out.println("Device Status: Adequate");
+        System.out.println("Suspicious Activities: 0");
+    } else {
+        System.out.println("Suspicious Activities: " + suspiciousActivities.size() + 
+            (suspiciousActivities.size() > 0 ? " [!]" : " [OK]"));
+    }
+    
+    System.out.println("Operating System: " + osName);
+    System.out.println("Device Name: " + deviceName);
+    
+    if (!IsVariable && fakerDetected) {
+        System.out.println("\n[!!!] FAKER DETECTED! [!!!]");
+        System.out.println("This device is connected to a hotspot!");
+    }
+    
+    if (IsVariable) {
+        System.out.println("\n[✓]");
+        System.out.println("All sources appear clean");
+    } else if (!suspiciousActivities.isEmpty()) {
+        System.out.println("\nWARNINGS:");
+        for (String activity : suspiciousActivities) {
+            System.out.println("  - " + activity);
         }
     }
     
-    private void printSummary() {
-        System.out.println("\n================================");
-        System.out.println("SUMMARY:");
-        System.out.println("================================");
-        
-        if (IsVariable) {
-            System.out.println("Device Status: Adequate");
-            System.out.println("Suspicious Activities: 0");
-        } else {
-            System.out.println("Suspicious Activities: " + suspiciousActivities.size() + 
-                (suspiciousActivities.size() > 0 ? " [!]" : " [OK]"));
-        }
-        
-        System.out.println("Operating System: " + osName);
-        System.out.println("Device Name: " + deviceName);
-        
-        if (!IsVariable && fakerDetected) {
-            System.out.println("\n[!!!] FAKER DETECTED! [!!!]");
-            System.out.println("This device is connected to a Windows PC hotspot!");
-        }
-        
-        if (IsVariable) {
-            System.out.println("\n[✓]");
-            System.out.println("All sources appear clean");
-        } else if (!suspiciousActivities.isEmpty()) {
-            System.out.println("\nWARNINGS:");
-            for (String activity : suspiciousActivities) {
-                System.out.println("  - " + activity);
-            }
-        }
-        
-        System.out.println("\nReport saved to Desktop/ConnectionSummary.html");
-        System.out.println("\nScript complete.");
-    }
+    System.out.println("\nReport saved to Desktop/ConnectionSummary.html");
+    System.out.println("\nScript complete.");
+}
+
+// Inner classes
+static class ConnectionInfo {
+    String ssid;
+    String bssid;
+    String channel;
+    String signal;
+    boolean isHotspot = false;
+    List<String> hotspotIndicators = new ArrayList<>();
     
-    // Inner classes
-    static class ConnectionInfo {
-        String ssid;
-        String bssid;
-        String channel;
-        String signal;
-        boolean isHotspot = false;
-        List<String> hotspotIndicators = new ArrayList<>();
-        
-        ConnectionInfo(String ssid, String bssid, String channel, String signal) {
-            this.ssid = ssid;
-            this.bssid = bssid;
-            this.channel = channel;
-            this.signal = signal;
-        }
+    ConnectionInfo(String ssid, String bssid, String channel, String signal) {
+        this.ssid = ssid;
+        this.bssid = bssid;
+        this.channel = channel;
+        this.signal = signal;
     }
+}
+
+static class NetworkProfile {
+    String ssid;
+    boolean isHotspot;
     
-    static class NetworkProfile {
-        String ssid;
-        boolean isHotspot;
-        
-        NetworkProfile(String ssid, boolean isHotspot) {
-            this.ssid = ssid;
-            this.isHotspot = isHotspot;
-        }
+    NetworkProfile(String ssid, boolean isHotspot) {
+        this.ssid = ssid;
+        this.isHotspot = isHotspot;
     }
+}
+
+static class HostedNetworkInfo {
+    boolean isActive;
+    String ssid;
+    int clients;
     
-    static class HostedNetworkInfo {
-        boolean isActive;
-        String ssid;
-        int clients;
-        
-        HostedNetworkInfo(boolean isActive, String ssid, int clients) {
-            this.isActive = isActive;
-            this.ssid = ssid;
-            this.clients = clients;
-        }
+    HostedNetworkInfo(boolean isActive, String ssid, int clients) {
+        this.isActive = isActive;
+        this.ssid = ssid;
+        this.clients = clients;
     }
+}
+
+static class ConnectedDevice {
+    String ip;
+    String mac;
+    String type;
     
-    static class ConnectedDevice {
-        String ip;
-        String mac;
-        String type;
-        
-        ConnectedDevice(String ip, String mac, String type) {
-            this.ip = ip;
-            this.mac = mac;
-            this.type = type;
-        }
+    ConnectedDevice(String ip, String mac, String type) {
+        this.ip = ip;
+        this.mac = mac;
+        this.type = type;
     }
+}
 }
