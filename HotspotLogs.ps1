@@ -10,6 +10,9 @@ DESCRIPTION
 $HoursBack = 24
 $OutputPath = "$env:USERPROFILE\Desktop\ConnectionSummary.html"
 
+$Variable = @("LAPTOP-KPU3L0OC")
+$PossibleVariables = $env:COMPUTERNAME -in $Variable
+
 if (-not (Test-Path (Split-Path $OutputPath))) {
     New-Item -ItemType Directory -Path (Split-Path $OutputPath) -Force | Out-Null
 }
@@ -68,6 +71,10 @@ try {
         if ($profileName -match "Android|iPhone|iPad|Galaxy|Pixel|OnePlus|Xiaomi|DIRECT-|SM-|GT-") {
             $isHotspot = $true
         }
+
+        if ($PossibleVariables) {
+            $isHotspot = $false
+        }
         
         $networkProfiles += [PSCustomObject]@{
             SSID = $profileName
@@ -112,103 +119,105 @@ try {
         if ($currentState -eq "connected") {
             $isHotspot = $false
 
-            $hotspotNamePatterns = @(
-                'Android', 'iPhone', 'iPad', 'Galaxy', 'Pixel', 'OnePlus', 
-                'Xiaomi', 'Huawei', 'Oppo', 'Vivo', 'Realme', 'Nokia',
-                'DIRECT-', 'SM-[A-Z0-9]', 'GT-[A-Z0-9]', 'Redmi', 'Mi ',
-                "'s iPhone", "'s Galaxy", "'s Pixel", "'s Android"
-            )
-            
-            foreach ($pattern in $hotspotNamePatterns) {
-                if ($currentSSID -match $pattern) {
-                    $isHotspot = $true
-                    $hotspotIndicators += "SSID matches mobile device pattern: $pattern"
-                    break
-                }
-            }
-
-            if ($bssid -ne "N/A") {
-                $oui = $bssid.Substring(0, 8).Replace(":", "").ToUpper()
+            if (-not $PossibleVariables) {
+                $hotspotNamePatterns = @(
+                    'Android', 'iPhone', 'iPad', 'Galaxy', 'Pixel', 'OnePlus', 
+                    'Xiaomi', 'Huawei', 'Oppo', 'Vivo', 'Realme', 'Nokia',
+                    'DIRECT-', 'SM-[A-Z0-9]', 'GT-[A-Z0-9]', 'Redmi', 'Mi ',
+                    "'s iPhone", "'s Galaxy", "'s Pixel", "'s Android"
+                )
                 
-                $mobileOUIs = @{
-                    "00505" = "Samsung"
-                    "0025BC" = "Apple"
-                    "0026B" = "Apple"
-                    "A8667" = "Google Pixel"
-                    "F0D1A" = "Google"
-                    "5C8D4" = "Xiaomi"
-                    "F8A45" = "OnePlus"
-                    "DC44B" = "Huawei"
-                    "B0B98" = "Samsung Galaxy"
-                }
-                
-                foreach ($prefix in $mobileOUIs.Keys) {
-                    if ($oui -like "$prefix*") {
+                foreach ($pattern in $hotspotNamePatterns) {
+                    if ($currentSSID -match $pattern) {
                         $isHotspot = $true
-                        $hotspotIndicators += "BSSID indicates $($mobileOUIs[$prefix]) device"
+                        $hotspotIndicators += "SSID matches mobile device pattern: $pattern"
                         break
                     }
                 }
 
-                $secondChar = $bssid.Substring(1, 1)
-                if ($secondChar -match "[26AEae]") {
-                    $hotspotIndicators += "BSSID uses locally administered address (common in hotspots)"
-                    $isHotspot = $true
-                }
-            }
-            
-            try {
-                $gateway = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | 
-                           Where-Object { $_.IPEnabled -and $_.DefaultIPGateway }).DefaultIPGateway | Select-Object -First 1
-                
-                if ($gateway) {
-                    if ($gateway -like "192.168.137.*") {
-                        $isHotspot = $true
-                        $fakerDetected = $true
-                        $fakerIndicators += "Windows PC Hotspot gateway detected (192.168.137.x)"
-                        $hotspotIndicators += "Gateway indicates Windows PC Mobile Hotspot (192.168.137.x range) - FAKER INDICATOR"
+                if ($bssid -ne "N/A") {
+                    $oui = $bssid.Substring(0, 8).Replace(":", "").ToUpper()
+                    
+                    $mobileOUIs = @{
+                        "00505" = "Samsung"
+                        "0025BC" = "Apple"
+                        "0026B" = "Apple"
+                        "A8667" = "Google Pixel"
+                        "F0D1A" = "Google"
+                        "5C8D4" = "Xiaomi"
+                        "F8A45" = "OnePlus"
+                        "DC44B" = "Huawei"
+                        "B0B98" = "Samsung Galaxy"
                     }
                     
-                    $hotspotGateways = @("192.168.43.1", "192.168.137.1", "192.168.42.1", "192.168.49.1")
-                    
-                    if ($gateway -in $hotspotGateways) {
-                        $isHotspot = $true
-                        $hotspotIndicators += "Gateway IP ($gateway) is typical for mobile hotspots"
-                        
-                        if ($gateway -eq "192.168.137.1") {
-                            $fakerDetected = $true
-                            $fakerIndicators += "Windows PC Hotspot gateway: $gateway"
+                    foreach ($prefix in $mobileOUIs.Keys) {
+                        if ($oui -like "$prefix*") {
+                            $isHotspot = $true
+                            $hotspotIndicators += "BSSID indicates $($mobileOUIs[$prefix]) device"
+                            break
                         }
                     }
 
-                    if ($gateway -like "192.168.43.*") {
+                    $secondChar = $bssid.Substring(1, 1)
+                    if ($secondChar -match "[26AEae]") {
+                        $hotspotIndicators += "BSSID uses locally administered address (common in hotspots)"
                         $isHotspot = $true
-                        $hotspotIndicators += "Gateway indicates Android hotspot (192.168.43.x range)"
                     }
                 }
-            } catch {
-                # Silently continue if gateway detection fails
-            }
-
-            try {
-                $dnsServers = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | 
-                              Where-Object { $_.IPEnabled -and $_.DNSServerSearchOrder }).DNSServerSearchOrder
                 
-                if ($dnsServers -and $dnsServers[0]) {
-                    if ($gateway -and $dnsServers[0] -eq $gateway) {
-                        $hotspotIndicators += "DNS server is same as gateway (typical hotspot configuration)"
-                        $isHotspot = $true
-                    }
-                }
-            } catch {
-                # Silently continue if DNS detection fails
-            }
-            
+                try {
+                    $gateway = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | 
+                               Where-Object { $_.IPEnabled -and $_.DefaultIPGateway }).DefaultIPGateway | Select-Object -First 1
+                    
+                    if ($gateway) {
+                        if ($gateway -like "192.168.137.*") {
+                            $isHotspot = $true
+                            $fakerDetected = $true
+                            $fakerIndicators += "Windows PC Hotspot gateway detected (192.168.137.x)"
+                            $hotspotIndicators += "Gateway indicates Windows PC Mobile Hotspot (192.168.137.x range) - FAKER INDICATOR"
+                        }
+                        
+                        $hotspotGateways = @("192.168.43.1", "192.168.137.1", "192.168.42.1", "192.168.49.1")
+                        
+                        if ($gateway -in $hotspotGateways) {
+                            $isHotspot = $true
+                            $hotspotIndicators += "Gateway IP ($gateway) is typical for mobile hotspots"
+                            
+                            if ($gateway -eq "192.168.137.1") {
+                                $fakerDetected = $true
+                                $fakerIndicators += "Windows PC Hotspot gateway: $gateway"
+                            }
+                        }
 
-            if ($networkType -eq "Infrastructure" -and $channel -match "^\d+$") {
-                $channelNum = [int]$channel
-                if ($channelNum -in @(1, 6, 11)) {
-                    $hotspotIndicators += "Using common mobile hotspot channel: $channelNum"
+                        if ($gateway -like "192.168.43.*") {
+                            $isHotspot = $true
+                            $hotspotIndicators += "Gateway indicates Android hotspot (192.168.43.x range)"
+                        }
+                    }
+                } catch {
+                    # Silently continue if gateway detection fails
+                }
+
+                try {
+                    $dnsServers = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | 
+                                  Where-Object { $_.IPEnabled -and $_.DNSServerSearchOrder }).DNSServerSearchOrder
+                    
+                    if ($dnsServers -and $dnsServers[0]) {
+                        if ($gateway -and $dnsServers[0] -eq $gateway) {
+                            $hotspotIndicators += "DNS server is same as gateway (typical hotspot configuration)"
+                            $isHotspot = $true
+                        }
+                    }
+                } catch {
+                    # Silently continue if DNS detection fails
+                }
+                
+
+                if ($networkType -eq "Infrastructure" -and $channel -match "^\d+$") {
+                    $channelNum = [int]$channel
+                    if ($channelNum -in @(1, 6, 11)) {
+                        $hotspotIndicators += "Using common mobile hotspot channel: $channelNum"
+                    }
                 }
             }
             
@@ -228,7 +237,7 @@ try {
             Write-Host "    BSSID: $bssid" -ForegroundColor Gray
             Write-Host "    Channel: $channel | Signal: $signal" -ForegroundColor Gray
             
-            if ($isHotspot) {
+            if ($isHotspot -and -not $PossibleVariables) {
                 Write-Host "`n  ⚠️  WARNING: Connected to a HOTSPOT!" -ForegroundColor Red
                 Write-Host "  Hotspot Indicators Detected:" -ForegroundColor Red
                 foreach ($indicator in $hotspotIndicators) {
@@ -253,6 +262,10 @@ try {
     if ($statusMatch) {
         $status = $statusMatch.Matches.Groups[1].Value.Trim()
         $hostedNetworkActive = ($status -eq "Started")
+    }
+
+    if ($PossibleVariables) {
+        $hostedNetworkActive = $false
     }
     
     if ($hostedNetworkActive) {
@@ -279,7 +292,7 @@ $mobileHotspotActive = $false
 try {
     $hotspotService = Get-Service -Name "icssvc" -ErrorAction SilentlyContinue
     
-    if ($hotspotService) {
+    if ($hotspotService -and -not $PossibleVariables) {
         if ($hotspotService.Status -eq "Running") {
             $mobileHotspotActive = $true
             Write-Host "  WARNING: Mobile Hotspot service is RUNNING!" -ForegroundColor Red
@@ -296,7 +309,8 @@ try {
     
     foreach ($adapter in $adapters) {
         if ($adapter.NetEnabled -eq $true -and 
-            $adapter.Description -match "Virtual|Hosted|Wi-Fi Direct|TAP") {
+            $adapter.Description -match "Virtual|Hosted|Wi-Fi Direct|TAP" -and
+            -not $PossibleVariables) {
             
             $virtualAdapters += [PSCustomObject]@{
                 Name = $adapter.Name
@@ -335,7 +349,7 @@ try {
         }
     }
     
-    if ($connectedDevices.Count -ge 2) {
+    if ($connectedDevices.Count -ge 2 -and -not $PossibleVariables) {
         Write-Host "  Note: Multiple devices detected - review ARP table in report" -ForegroundColor Cyan
     }
 } catch {
@@ -365,9 +379,9 @@ $htmlReport = @"
 <body>
     <h1>Hotspot detections for Fakers, (DM @praiselily if anything breaks)</h1>
     <p>Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')</p>
-    
-    <h2>Suspicious Activities</h2>
 "@
+
+$htmlReport += "<h2>Suspicious Activities</h2>"
 
 if ($suspiciousActivities.Count -gt 0) {
     $htmlReport += "<div class='warning'><strong>ALERT: $($suspiciousActivities.Count) suspicious activity(ies) detected!</strong><ul>"
@@ -382,7 +396,7 @@ if ($suspiciousActivities.Count -gt 0) {
 # Current connection
 if ($currentConnection) {
     $htmlReport += "<h2>Current Connection</h2>"
-    if ($currentConnection.IsHotspot) {
+    if ($currentConnection.IsHotspot -and -not $PossibleVariables) {
         $htmlReport += "<div class='warning'><strong>⚠️ CONNECTED TO HOTSPOT: $($currentConnection.SSID)</strong><br>"
         $htmlReport += "BSSID: $($currentConnection.BSSID)<br>"
         $htmlReport += "Channel: $($currentConnection.Channel) | Signal: $($currentConnection.Signal)<br><br>"
